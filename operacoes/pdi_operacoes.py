@@ -1,5 +1,5 @@
 """
-Processameno de Imagens - CIência da Computação - UFT
+Processamento de Imagens - Ciência da Computação - UFT
 Profa. Dra. Glenda Botelho
 ALUNOS: Mara Emanuella Carvalho Martins e Luís Gustavo Alves Bezerra
 
@@ -7,6 +7,8 @@ Operações implementadas manualmente:
     1. Adição de imagens
     2. Subtração de imagens (com normalização)
     3. Rotação (mapeamento inverso)
+    4. Transformação Power-Law
+    5. Equalização de Histograma
 """
 
 import os
@@ -15,6 +17,7 @@ import math
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+
 
 def adicao_imagens(f: np.ndarray, g: np.ndarray) -> np.ndarray:
     if f.shape != g.shape:
@@ -38,10 +41,6 @@ def subtracao_imagens(f: np.ndarray, g: np.ndarray) -> np.ndarray:
 
 
 def rotacao_imagem(f: np.ndarray, angulo_graus: float) -> np.ndarray:
-    """
-    Rotaciona a imagem usando mapeamento inverso (Eq. 4.5 do slide).
-    Interpolação: vizinho mais próximo.
-    """
     altura, largura = f.shape[:2]
     theta = math.radians(angulo_graus)
     cx, cy = largura / 2.0, altura / 2.0
@@ -49,10 +48,8 @@ def rotacao_imagem(f: np.ndarray, angulo_graus: float) -> np.ndarray:
     cos_i = math.cos(-theta)
     sen_i = math.sin(-theta)
 
-    # Matriz de Coordenadas em todos os pixels
     y, x = np.indices((altura, largura))
 
-    # Translada
     xd_c = x - cx
     yd_c = y - cy
 
@@ -61,7 +58,6 @@ def rotacao_imagem(f: np.ndarray, angulo_graus: float) -> np.ndarray:
 
     destino = np.zeros_like(f)
 
-    # Mascara de Pixels
     mask = (0 <= x0) & (x0 < largura) & (0 <= y0) & (y0 < altura)
 
     destino[y[mask], x[mask]] = f[y0[mask], x0[mask]]
@@ -69,8 +65,57 @@ def rotacao_imagem(f: np.ndarray, angulo_graus: float) -> np.ndarray:
     return destino
 
 
+def power_law_transformacao(f: np.ndarray, gamma: float, c: float = 1.0) -> np.ndarray:
+    altura, largura = f.shape[:2]
+    destino = np.zeros_like(f, dtype=np.uint8)
+
+    for i in range(altura):
+        for j in range(largura):
+            r = f[i, j] / 255.0
+            s = c * (r ** gamma) * 255
+            destino[i, j] = np.clip(int(s), 0, 255)
+
+    return destino
+
+
+def equalizacao_histograma(f: np.ndarray) -> np.ndarray:
+    altura, largura = f.shape[:2]
+    total_pixels = altura * largura
+    L = 256
+
+    hist = np.zeros(L, dtype=np.int32)
+
+    # Histograma manual
+    for i in range(altura):
+        for j in range(largura):
+            intensidade = f[i, j]
+            hist[intensidade] += 1
+
+    # CDF manual
+    cdf = np.zeros(L, dtype=np.float64)
+    acumulado = 0
+
+    for k in range(L):
+        acumulado += hist[k]
+        cdf[k] = acumulado / total_pixels
+
+    # Mapeamento
+    mapa = np.zeros(L, dtype=np.uint8)
+
+    for k in range(L):
+        mapa[k] = int((L - 1) * cdf[k])
+
+    # Aplicação manual
+    resultado = np.zeros_like(f, dtype=np.uint8)
+
+    for i in range(altura):
+        for j in range(largura):
+            resultado[i, j] = mapa[f[i, j]]
+
+    return resultado
+
+
 def exibir_e_salvar(imagens: list, titulos: list, nome_arquivo: str):
-    """Exibe uma grade de imagens e salva em disco."""
     os.makedirs("outputs", exist_ok=True)
     caminho = os.path.join("outputs", nome_arquivo)
 
@@ -87,93 +132,57 @@ def exibir_e_salvar(imagens: list, titulos: list, nome_arquivo: str):
     plt.savefig(caminho, dpi=130, bbox_inches='tight',
                 facecolor=fig.get_facecolor())
     plt.show()
-    print(f"  → Salvo em: {caminho}")
+    print(f"→ Salvo em: {caminho}")
 
-def demo_aritmetica():
-    """Demonstração com os valores do slide (p.18/19)."""
-    print("\n" + "="*60)
-    print("  OPERAÇÕES ARITMÉTICAS — valores do slide")
-    print("="*60)
-
-    g1 = np.array([
-        [50, 50, 53, 53, 53],
-        [53, 53, 53, 53, 53],
-        [53, 53, 46, 46, 46],
-        [46, 46, 48, 48, 48],
-        [48, 48, 48, 70, 70],
-    ], dtype=np.uint8)
-
-    g2 = np.array([
-        [120, 120, 113, 113, 114],
-        [113, 113, 113,  64,  64],
-        [ 64,  64,  64,  64,  64],
-        [ 64,  64,  41,  41,  41],
-        [ 41,  41,  41,  41,  41],
-    ], dtype=np.uint8)
-
-    soma  = adicao_imagens(g1, g2)
-    media = (soma.astype(np.int32) // 2).astype(np.uint8)
-    diff  = subtracao_imagens(g1, g2)
-
-    print("g1:\n", g1)
-    print("\ng2:\n", g2)
-    print("\nMédia (g1 + g2)/2:\n", media)
-    print("\nSubtração (escalada):\n", diff)
-
-    exibir_e_salvar(
-        [g1, g2, media, diff],
-        ["g1", "g2", "Adição\n(média)", "Subtração\n(escalada)"],
-        "aritmetica_slide.png"
-    )
-
-def demo_rotacao():
-    """Rotação em múltiplos ângulos com imagem sintética."""
-    print("\n" + "="*60)
-    print("  ROTAÇÃO — múltiplos ângulos")
-    print("="*60)
-
-    tam = 120
-    m = tam // 4
-    f = np.zeros((tam, tam), dtype=np.uint8)
-    f[m:tam-m, m:tam-m] = 180
-    f[tam//2, m:tam-m] = 255
-    f[m:tam-m, tam//2] = 255
-
-    angulos = [0, 45, 90, 135, 180]
-    resultados = []
-    titulos = []
-
-    for ang in angulos:
-        print(f"  Rotacionando {ang}°...")
-        resultados.append(rotacao_imagem(f, ang))
-        titulos.append(f"θ = {ang}°")
-
-    exibir_e_salvar(resultados, titulos, "rotacao_angulos.png")
 
 def demo_imagem_real(caminho: str):
-    """Aplica as operações em uma imagem real."""
-    print("\n" + "="*60)
-    print(f"  IMAGEM REAL: {caminho}")
-    print("="*60)
-
     img = cv2.imread(caminho, cv2.IMREAD_GRAYSCALE)
+
     if img is None:
-        print(f"  [ERRO] Não foi possível abrir '{caminho}'.")
+        print(f"[ERRO] Não foi possível abrir '{caminho}'.")
         return
 
     g = img & 0b11111110
-
-    print(f"  Dimensões: {img.shape}")
-
     soma = adicao_imagens(img, g)
     diff = subtracao_imagens(img, g)
-    rot  = rotacao_imagem(img, 45)
+    rot = rotacao_imagem(img, 45)
 
     exibir_e_salvar(
         [img, g, soma, diff, rot],
-        ["f — original", "g — LSB zerado",
-         "s = f + g", "d = f − g\n(escalada)", "Rotação 45°"],
+        ["Original", "LSB zerado", "Adição", "Subtração", "Rotação 45°"],
         "operacoes_real.png"
+    )
+
+
+def demo_transformacao(caminho: str, gamma_valor: float):
+    img = cv2.imread(caminho, cv2.IMREAD_GRAYSCALE)
+
+    if img is None:
+        print(f"[ERRO] Não foi possível abrir '{caminho}'.")
+        return
+
+    resultado = power_law_transformacao(img, gamma_valor)
+
+    exibir_e_salvar(
+        [resultado],
+        [f"Power-Law γ={gamma_valor}"],
+        "power_law.png"
+    )
+
+
+def demo_equalizacao(caminho: str):
+    img = cv2.imread(caminho, cv2.IMREAD_GRAYSCALE)
+
+    if img is None:
+        print(f"[ERRO] Não foi possível abrir '{caminho}'.")
+        return
+
+    resultado = equalizacao_histograma(img)
+
+    exibir_e_salvar(
+        [img, resultado],
+        ["Original", "Equalizada"],
+        "equalizacao_histograma.png"
     )
 
 
@@ -182,8 +191,23 @@ if __name__ == "__main__":
     print("PDI · UFT — Operações Aritméticas e Geométricas")
     print("__________________________________________________")
 
-    demo_aritmetica()
-    demo_rotacao()
+    if len(sys.argv) > 2:
+        comando = sys.argv[1]
+        imagem = sys.argv[2]
 
-    if len(sys.argv) > 1:
-        demo_imagem_real(sys.argv[1])
+        if comando == "-r":
+            demo_imagem_real(imagem)
+
+        elif comando == "-t":
+            gamma = float(sys.argv[3]) if len(sys.argv) > 3 else 0.5
+            demo_transformacao(imagem, gamma)
+
+        elif comando == "-e":
+            demo_equalizacao(imagem)
+
+        else:
+            print("Comando inválido.")
+            print("Use:")
+            print("python script.py -r imagem.png")
+            print("python script.py -t imagem.png 0.5")
+            print("python script.py -e imagem.png")
